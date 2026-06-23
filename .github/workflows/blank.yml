@@ -24,11 +24,11 @@ jobs:
           pip install cmake ninja setuptools wheel flatbuffers
 
       - name: Setup Android NDK
-        # Dynamically finds the latest Android NDK installed on the GitHub runner
+        # Use GitHub's stable default NDK (typically LTS 25.x or 26.x).
+        # We avoid forcing NDK 29, which breaks ONNX Runtime's CMake generation.
         run: |
-          LATEST_NDK=$(ls -d $ANDROID_SDK_ROOT/ndk/* | sort -V | tail -n 1)
-          echo "ANDROID_NDK_PATH=$LATEST_NDK" >> $GITHUB_ENV
-          echo "Using Android NDK at: $LATEST_NDK"
+          echo "ANDROID_NDK_PATH=$ANDROID_NDK_HOME" >> $GITHUB_ENV
+          echo "Using Android NDK at: $ANDROID_NDK_HOME"
 
       - name: Fetch Qualcomm QNN SDK
         run: |
@@ -49,7 +49,6 @@ jobs:
           fi
           
           # Strip the known suffix from the path to get the exact SDK root
-          # This safely removes '/include/QNN/QnnInterface.h' from the string
           QNN_ROOT=${HEADER_PATH%/include/QNN/QnnInterface.h}
           
           echo "QNN_HOME=$QNN_ROOT" >> $GITHUB_ENV
