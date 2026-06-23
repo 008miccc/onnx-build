@@ -1,11 +1,12 @@
 name: Build ONNX Runtime QNN Wheel for Android
 
-on: 
-  workflow_dispatch: # Allows you to trigger the build manually
+on:
+  workflow_dispatch:
 
 jobs:
   build-wheel:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout ONNX Runtime
         uses: actions/checkout@v4
@@ -18,56 +19,73 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
       - name: Install Build Dependencies
         run: |
           python -m pip install --upgrade pip
           pip install cmake ninja setuptools wheel flatbuffers
 
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
       - name: Setup Android NDK
-        # Use GitHub's stable default NDK (typically LTS 25.x or 26.x).
-        # We avoid forcing NDK 29, which breaks ONNX Runtime's CMake generation.
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r26d
+
+      - name: Export Android paths
         run: |
+          echo "ANDROID_SDK_PATH=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
           echo "ANDROID_NDK_PATH=$ANDROID_NDK_HOME" >> $GITHUB_ENV
+          echo "Using Android SDK at: $ANDROID_SDK_ROOT"
           echo "Using Android NDK at: $ANDROID_NDK_HOME"
 
       - name: Fetch Qualcomm QNN SDK
+        shell: bash
         run: |
+          set -euxo pipefail
           echo "Downloading Qualcomm QNN SDK v2.39..."
           curl -L "https://apigwx-aws.qualcomm.com/qsc/public/v1/api/download/software/sdks/Qualcomm_AI_Runtime_Community/All/2.39.0.250926/v2.39.0.250926.zip" -o qnn_sdk.zip
-          
+
           echo "Extracting SDK..."
           mkdir -p /tmp/qnn_extracted
           unzip -q qnn_sdk.zip -d /tmp/qnn_extracted
-          
+
           echo "Locating QNN SDK root directory..."
-          # Find the exact path to the header
-          HEADER_PATH=$(find /tmp/qnn_extracted -type f -name "QnnInterface.h" | head -n 1)
-          
+          HEADER_PATH="$(find /tmp/qnn_extracted -type f -name 'QnnInterface.h' | head -n 1)"
+
           if [ -z "$HEADER_PATH" ]; then
             echo "::error::Could not find QnnInterface.h inside the extracted SDK archive!"
             exit 1
           fi
-          
-          # Strip the known suffix from the path to get the exact SDK root
-          QNN_ROOT=${HEADER_PATH%/include/QNN/QnnInterface.h}
-          
+
+          QNN_ROOT="${HEADER_PATH%/include/QNN/QnnInterface.h}"
           echo "QNN_HOME=$QNN_ROOT" >> $GITHUB_ENV
           echo "Detected QNN Home path at: $QNN_ROOT"
 
       - name: Build the Python Wheel
+        shell: bash
         run: |
+          set -euxo pipefail
           ./build.sh \
             --config Release \
             --android \
-            --android_sdk_path $ANDROID_SDK_ROOT \
-            --android_ndk_path ${{ env.ANDROID_NDK_PATH }} \
+            --android_sdk_path "$ANDROID_SDK_PATH" \
+            --android_ndk_path "$ANDROID_NDK_PATH" \
             --android_abi arm64-v8a \
             --android_api 29 \
             --cmake_generator Ninja \
+            --build_shared_lib \
             --build_wheel \
+            --minimal_build extended \
             --parallel 2 \
             --use_qnn static_lib \
-            --qnn_home "${{ env.QNN_HOME }}" \
+            --qnn_home "$QNN_HOME" \
             --use_nnapi \
             --use_xnnpack
 
