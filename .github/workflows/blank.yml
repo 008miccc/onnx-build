@@ -1,0 +1,66 @@
+name: Build ONNX Runtime QNN Wheel for Android
+
+on: 
+  workflow_dispatch: # Allows you to manually click "Run workflow" in GitHub
+
+jobs:
+  build-wheel:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout ONNX Runtime
+        uses: actions/checkout@v4
+        with:
+          repository: microsoft/onnxruntime
+          submodules: recursive
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Build Dependencies
+        run: pip install cmake ninja
+
+      - name: Setup Android NDK
+        # GitHub's Ubuntu runners come pre-installed with the Android SDK and NDK.
+        # We target a compatible NDK version from the runner's environment.
+        run: echo "ANDROID_NDK_PATH=$ANDROID_SDK_ROOT/ndk/26.1.10909125" >> $GITHUB_ENV
+
+      - name: Fetch Qualcomm QNN SDK
+        run: |
+          echo "Downloading Qualcomm QNN SDK v2.39..."
+          curl -L "https://apigwx-aws.qualcomm.com/qsc/public/v1/api/download/software/sdks/Qualcomm_AI_Runtime_Community/All/2.39.0.250926/v2.39.0.250926.zip" -o qnn_sdk.zip
+          
+          echo "Extracting SDK..."
+          unzip -q qnn_sdk.zip -d /tmp/qnn_extracted
+          
+          # Find the actual home directory (Qualcomm zips often have nested folders)
+          # We look for the folder containing the 'lib' directory
+          QNN_HOME_DIR=$(find /tmp/qnn_extracted -type d -name "arm64-android" | sed 's|/lib/arm64-android||')
+          echo "QNN_HOME=$QNN_HOME_DIR" >> $GITHUB_ENV
+          echo "Detected QNN Home path at: $QNN_HOME_DIR"
+
+      - name: Build the Python Wheel
+        env:
+          # CRITICAL: Forces Ninja to limit memory usage so the 7GB runner doesn't fail
+          NINJA_ARGS: "-j 2" 
+        run: |
+          ./build.sh \
+            --config Release \
+            --android \
+            --android_sdk_path $ANDROID_SDK_ROOT \
+            --android_ndk_path ${{ env.ANDROID_NDK_PATH }} \
+            --android_abi arm64-v8a \
+            --android_api 29 \
+            --cmake_generator Ninja \
+            --build_wheel \
+            --use_qnn static_lib \
+            --qnn_home ${{ env.QNN_HOME }} \
+            --use_nnapi \
+            --use_xnnpack
+
+      - name: Upload Wheel as Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: onnxruntime-android-qnn-wheel
+          path: build/Android/Release/dist/*.whl
