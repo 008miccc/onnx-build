@@ -39,8 +39,17 @@ jobs:
           mkdir -p /tmp/qnn_extracted
           unzip -q qnn_sdk.zip -d /tmp/qnn_extracted
           
-          # Accurately isolate the root folder extracted from the ZIP file
-          QNN_ROOT=$(find /tmp/qnn_extracted -mindepth 1 -maxdepth 1 -type d | head -n 1)
+          echo "Locating QNN SDK root directory..."
+          # Recursively find the key header file required by ONNX Runtime
+          HEADER_PATH=$(find /tmp/qnn_extracted -type f -name "QnnInterface.h" | head -n 1)
+          
+          if [ -z "$HEADER_PATH" ]; then
+            echo "::error::Could not find QnnInterface.h inside the extracted SDK archive!"
+            exit 1
+          fi
+          
+          # Go up two levels (from 'include/QnnInterface.h' back to the SDK root folder)
+          QNN_ROOT=$(dirname $(dirname "$HEADER_PATH"))
           
           echo "QNN_HOME=$QNN_ROOT" >> $GITHUB_ENV
           echo "Detected QNN Home path at: $QNN_ROOT"
